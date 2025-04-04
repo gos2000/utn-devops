@@ -1,0 +1,47 @@
+# Vagrantfile
+Vagrant.configure("2") do |config|
+  # Configuración de la VM
+  config.vm.box = "ubuntu/focal64" # Ubuntu 20.04 LTS
+  config.vm.network "private_network", ip: "192.168.56.10" # IP estática accesible desde el host
+
+
+  config.vm.network "forwarded_port", guest: 8080, host: 8083, host_ip: "127.0.0.1"
+  
+  
+  config.vm.synced_folder "./puppet", "/vagrant_puppet", type: "rsync"
+  #descripcion de la VM
+  config.vm.provider "virtualbox" do |v|
+	  v.name = "DevOps-puppet-v2"
+    v.memory = "1024"
+  end
+  # Script de aprovisionamiento
+  config.vm.provision "shell", inline: <<-SHELL
+    # Actualizar el sistema
+    apt-get update && apt-get upgrade -y
+
+    # Instalar Puppet Server y Cliente
+    wget https://apt.puppet.com/puppet7-release-focal.deb
+    dpkg -i puppet7-release-focal.deb
+    apt-get update
+    apt-get install -y puppetserver puppet-agent
+
+    # Gestionar usuario y grupo de Puppet
+    groupadd --system puppet || true
+    useradd --system -g puppet -d /var/lib/puppet puppet || true
+
+    # Configurar Puppet Server
+    sed -i 's/-Xms2g -Xmx2g/-Xms512m -Xmx512m/g' /etc/default/puppetserver
+    systemctl start puppetserver
+    systemctl enable puppetserver
+
+    # Habilitar el agente de Puppet
+    systemctl start puppet
+    systemctl enable puppet
+
+    # Transferir archivos de configuración y manifiestos desde el host
+    rsync -av /vagrant_puppet/ /etc/puppetlabs/code/environments/production/
+
+    # Aplicar el manifiesto de Puppet
+    puppet apply /etc/puppetlabs/code/environments/production/manifests/site.pp
+  SHELL
+end
